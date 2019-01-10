@@ -19,6 +19,16 @@ struct MergeTreeMutationStatus
 
     /// If the mutation is done. Note that in case of ReplicatedMergeTree parts_to_do == 0 doesn't imply is_done == true.
     bool is_done = false;
+
+    struct PartStatus
+    {
+        PartStatus() = default;
+
+        bool in_progress;
+        String last_exception;
+    };
+
+    std::unordered_map<String, PartStatus> part_name_to_status;
 };
 
 }

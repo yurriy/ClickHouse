@@ -2,6 +2,9 @@
 
 #include <Core/Types.h>
 #include <Storages/MutationCommands.h>
+#include <Storages/MergeTree/MergeTreeMutationStatus.h>
+
+#include <unordered_map>
 
 
 namespace DB
@@ -18,6 +21,9 @@ struct MergeTreeMutationEntry
     bool is_temp = false;
 
     Int64 block_number = 0;
+
+    using PartStatus = MergeTreeMutationStatus::PartStatus;
+    std::unordered_map<String, PartStatus> part_name_to_status;
 
     /// Create a new entry and write it to a temporary file.
     MergeTreeMutationEntry(MutationCommands commands_, const String & path_prefix_, Int64 tmp_number);

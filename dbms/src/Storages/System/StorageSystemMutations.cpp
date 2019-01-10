@@ -26,6 +26,9 @@ NamesAndTypesList StorageSystemMutations::getNamesAndTypes()
         { "block_numbers.number",       std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt64>()) },
         { "parts_to_do",                std::make_shared<DataTypeInt64>() },
         { "is_done",                    std::make_shared<DataTypeUInt8>() },
+        { "current_parts.name",         std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()) },
+        { "current_parts.in_progress",  std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt8>()) },
+        { "current_parts.last_exception", std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()) },
     };
 }
 
@@ -107,6 +110,20 @@ void StorageSystemMutations::fillData(MutableColumns & res_columns, const Contex
                 block_numbers.emplace_back(pair.second);
             }
 
+            Array current_parts_name;
+            current_parts_name.reserve(status.part_name_to_status.size());
+            Array current_parts_in_progress;
+            current_parts_in_progress.reserve(status.part_name_to_status.size());
+            Array current_parts_last_exception;
+            current_parts_last_exception.reserve(status.part_name_to_status.size());
+            for (const auto & pair : status.part_name_to_status)
+            {
+                current_parts_name.emplace_back(pair.first);
+                current_parts_in_progress.emplace_back(pair.second.in_progress);
+                current_parts_last_exception.emplace_back(pair.second.last_exception);
+            }
+
+
             size_t col_num = 0;
             res_columns[col_num++]->insert(database);
             res_columns[col_num++]->insert(table);
@@ -118,6 +135,9 @@ void StorageSystemMutations::fillData(MutableColumns & res_columns, const Contex
             res_columns[col_num++]->insert(block_numbers);
             res_columns[col_num++]->insert(status.parts_to_do);
             res_columns[col_num++]->insert(status.is_done);
+            res_columns[col_num++]->insert(current_parts_name);
+            res_columns[col_num++]->insert(current_parts_in_progress);
+            res_columns[col_num++]->insert(current_parts_last_exception);
         }
     }
 }
