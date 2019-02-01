@@ -537,9 +537,9 @@ struct HashMethodHashed
     HashMethodHashed(ColumnRawPtrs key_columns, const Sizes &, const HashMethodContextPtr &)
         : key_columns(std::move(key_columns)) {}
 
-    UInt128 getKey(size_t row, Arena &) const { return hash128(row, key_columns.size(), key_columns); }
+    ALWAYS_INLINE UInt128 getKey(size_t row, Arena &) const { return hash128(row, key_columns.size(), key_columns); }
 
-    static StringRef getValueRef(const Value & value)
+    static ALWAYS_INLINE StringRef getValueRef(const Value & value)
     {
         return StringRef(reinterpret_cast<const char *>(&value.first), sizeof(value.first));
     }
