@@ -110,7 +110,8 @@ public:
     template <typename Data>
     ALWAYS_INLINE EmplaceResult emplaceKey(Data & data, size_t row, Arena & pool)
     {
-        return emplaceKeyImpl(static_cast<Derived &>(*this).getKey(row, pool), data, pool);
+        auto key = static_cast<Derived &>(*this).getKey(row, pool);
+        return emplaceKeyImpl(key, data, pool);
     }
 
     template <typename Data>
