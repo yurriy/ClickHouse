@@ -1,6 +1,7 @@
 #include <Interpreters/SubqueryForSet.h>
 #include <Interpreters/AnalyzedJoin.h>
 #include <Interpreters/InterpreterSelectWithUnionQuery.h>
+#include <DataStreams/ChangingColumnsBlockInputStream.h>
 #include <DataStreams/LazyBlockInputStream.h>
 
 namespace DB
@@ -12,6 +13,12 @@ void SubqueryForSet::makeSource(std::shared_ptr<InterpreterSelectWithUnionQuery>
 {
     source = std::make_shared<LazyBlockInputStream>(interpreter->getSampleBlock(),
                                                     [interpreter]() mutable { return interpreter->execute().in; });
+
+    auto change_column = [subquery_alias=subquery_alias](ColumnWithTypeAndName & column) -> void {
+        if (!subquery_alias.empty())
+            column.table = subquery_alias;
+    };
+    source = std::make_shared<ChangingColumnsBlockInputStream>(source, change_column);
 
     for (const auto & column : columns_from_joined_table)
         if (required_columns_from_joined_table.count(column.name_and_type.name))

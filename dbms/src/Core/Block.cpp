@@ -357,7 +357,7 @@ Block Block::cloneWithColumns(MutableColumns && columns) const
 
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i)
-        res.insert({ std::move(columns[i]), data[i].type, data[i].name });
+        res.insert({ std::move(columns[i]), data[i] });
 
     return res;
 }
@@ -369,7 +369,7 @@ Block Block::cloneWithColumns(const Columns & columns) const
 
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i)
-        res.insert({ columns[i], data[i].type, data[i].name });
+        res.insert({ columns[i], data[i] });
 
     return res;
 }
@@ -381,7 +381,7 @@ Block Block::cloneWithoutColumns() const
 
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i)
-        res.insert({ nullptr, data[i].type, data[i].name });
+        res.insert({ nullptr, data[i] });
 
     return res;
 }

@@ -571,6 +571,11 @@ bool ExpressionAnalyzer::appendJoin(ExpressionActionsChain & chain, bool only_ty
             }
         }
     }
+    else
+    {
+        if (std::optional<String> subquery_alias = getSubqueryAlias(*select_query))
+            subquery_for_set.subquery_alias = *subquery_alias;
+    }
 
     if (!subquery_for_set.join)
     {

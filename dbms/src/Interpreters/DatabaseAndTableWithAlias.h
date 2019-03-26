@@ -48,4 +48,7 @@ std::vector<TableWithColumnNames> getDatabaseAndTablesWithColumnNames(const ASTS
 std::vector<const ASTTableExpression *> getSelectTablesExpression(const ASTSelectQuery & select_query);
 ASTPtr extractTableExpression(const ASTSelectQuery & select, size_t table_number);
 
+/// Returns alias of first subquery in tables expression
+std::optional<String> getSubqueryAlias(const ASTSelectQuery & select);
+
 }

@@ -170,4 +170,14 @@ std::vector<TableWithColumnNames> getDatabaseAndTablesWithColumnNames(const ASTS
     return tables_with_columns;
 }
 
+std::optional<String> getSubqueryAlias(const ASTSelectQuery & select)
+{
+    for (const ASTTableExpression * table_expression : getSelectTablesExpression(select))
+    {
+        if (table_expression->subquery)
+            return static_cast<const ASTSubquery *>(table_expression->subquery.get())->tryGetAlias();
+    }
+    return {};
+}
+
 }

@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include <Core/ColumnsMetadata.h>
 #include <Core/QueryProcessingStage.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/IInterpreter.h>
@@ -173,6 +174,8 @@ private:
 
     AnalysisResult analyzeExpressions(QueryProcessingStage::Enum from_stage, bool dry_run);
 
+    /// Transforms all streams so that columns contain orig_name, table_name, orig_table and database.
+    void addColumnsMetadata(Pipeline & pipeline);
 
     /** From which table to read. With JOIN, the "left" table is returned.
      */

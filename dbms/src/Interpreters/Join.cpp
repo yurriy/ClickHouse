@@ -323,19 +323,16 @@ void Join::setSampleBlock(const Block & block)
             ++pos;
     }
 
-    size_t num_columns_to_add = sample_block_with_columns_to_add.columns();
-
-    for (size_t i = 0; i < num_columns_to_add; ++i)
+    for (ColumnWithTypeAndName & column : sample_block_with_columns_to_add)
     {
-        auto & column = sample_block_with_columns_to_add.getByPosition(i);
         if (!column.column)
             column.column = column.type->createColumn();
     }
 
     /// In case of LEFT and FULL joins, if use_nulls, convert joined columns to Nullable.
     if (use_nulls && isLeftOrFull(kind))
-        for (size_t i = 0; i < num_columns_to_add; ++i)
-            convertColumnToNullable(sample_block_with_columns_to_add.getByPosition(i));
+        for (ColumnWithTypeAndName & column : sample_block_with_columns_to_add)
+            convertColumnToNullable(column);
 }
 
 
@@ -742,8 +739,8 @@ void Join::joinBlockImpl(
     MutableColumns added_columns;
     added_columns.reserve(num_columns_to_add);
 
-    std::vector<std::pair<decltype(ColumnWithTypeAndName::type), decltype(ColumnWithTypeAndName::name)>> added_type_name;
-    added_type_name.reserve(num_columns_to_add);
+    std::vector<const ColumnWithTypeAndName *> added_column_metadata;
+    added_column_metadata.reserve(num_columns_to_add);
 
     std::vector<size_t> right_indexes;
     right_indexes.reserve(num_columns_to_add);
@@ -757,7 +754,7 @@ void Join::joinBlockImpl(
         {
             added_columns.push_back(src_column.column->cloneEmpty());
             added_columns.back()->reserve(src_column.column->size());
-            added_type_name.emplace_back(src_column.type, src_column.name);
+            added_column_metadata.emplace_back(&src_column);
             right_indexes.push_back(num_columns_to_skip + i);
         }
     }
@@ -782,7 +779,7 @@ void Join::joinBlockImpl(
 
     const auto added_columns_size = added_columns.size();
     for (size_t i = 0; i < added_columns_size; ++i)
-        block.insert(ColumnWithTypeAndName(std::move(added_columns[i]), added_type_name[i].first, added_type_name[i].second));
+        block.insert(ColumnWithTypeAndName(std::move(added_columns[i]), *added_column_metadata[i]));
 
     if (!filter)
         throw Exception("No data to filter columns", ErrorCodes::LOGICAL_ERROR);
@@ -806,7 +803,7 @@ void Join::joinBlockImpl(
                 if (needed_key_names_right.count(right_name) && !block.has(right_name))
                 {
                     const auto & col = block.getByName(left_name);
-                    block.insert({col.column, col.type, right_name});
+                    block.insert({col.column, sample_block_with_keys.getByPosition(i)});
                 }
             }
         }
@@ -832,7 +829,7 @@ void Join::joinBlockImpl(
                             mut_column->insertDefault();
                     }
 
-                    block.insert({std::move(mut_column), col.type, right_name});
+                    block.insert({std::move(mut_column), sample_block_with_keys.getByPosition(i)});
                 }
             }
         }
@@ -869,7 +866,7 @@ void Join::joinBlockImpl(
                     last_offset = (*offsets_to_replicate)[col_no];
                 }
 
-                block.insert({std::move(mut_column), col.type, right_name});
+                block.insert({std::move(mut_column), sample_block_with_keys.getByPosition(i)});
             }
         }
 
@@ -952,8 +949,8 @@ void Join::checkTypesOfKeys(const Block & block_left, const Names & key_names_le
 
 static void checkTypeOfKey(const Block & block_left, const Block & block_right)
 {
-    auto & [c1, left_type_origin, left_name] = block_left.safeGetByPosition(0);
-    auto & [c2, right_type_origin, right_name] = block_right.safeGetByPosition(0);
+    auto & [c1, left_type_origin, left_name, _1, _2, _3, _4] = block_left.safeGetByPosition(0);
+    auto & [c2, right_type_origin, right_name, _5, _6, _7, _8] = block_right.safeGetByPosition(0);
     auto left_type = removeNullable(left_type_origin);
     auto right_type = removeNullable(right_type_origin);
 

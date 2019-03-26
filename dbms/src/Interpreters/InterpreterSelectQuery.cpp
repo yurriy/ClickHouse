@@ -1,3 +1,4 @@
+#include <DataStreams/ChangingColumnsBlockInputStream.h>
 #include <DataStreams/ExpressionBlockInputStream.h>
 #include <DataStreams/FilterBlockInputStream.h>
 #include <DataStreams/LimitBlockInputStream.h>
@@ -568,6 +569,8 @@ void InterpreterSelectQuery::executeImpl(Pipeline & pipeline, const BlockInputSt
         LOG_TRACE(log, QueryProcessingStage::toString(from_stage) << " -> " << QueryProcessingStage::toString(to_stage));
     }
 
+    addColumnsMetadata(pipeline);
+
     if (to_stage > QueryProcessingStage::FetchColumns)
     {
         /// Now we will compose block streams that perform the necessary actions.
@@ -756,6 +759,38 @@ void InterpreterSelectQuery::executeImpl(Pipeline & pipeline, const BlockInputSt
         executeSubqueriesInSetsAndJoins(pipeline, expressions.subqueries_for_sets);
 }
 
+void InterpreterSelectQuery::addColumnsMetadata(Pipeline & pipeline)
+{
+    if (interpreter_subquery)
+    {
+        String subquery_alias = *getSubqueryAlias(selectQuery());
+        pipeline.transform([subquery_alias](auto & stream) -> void
+                           {
+                               auto change_column = [subquery_alias](ColumnWithTypeAndName & column) -> void
+                               {
+                                   column.table = subquery_alias;
+                               };
+                               stream = std::make_shared<ChangingColumnsBlockInputStream>(stream, change_column);
+                           });
+    }
+    else if (storage)
+    {
+        String database_name;
+        String table_name;
+        getDatabaseAndTableNames(database_name, table_name);
+
+        pipeline.transform([database_name, table_name](auto & stream)
+                           {
+                               auto change_column = [database_name, table_name](ColumnWithTypeAndName & column) -> void
+                               {
+                                   column.orig_name = column.name;
+                                   column.table = column.orig_table = table_name;
+                                   column.database = database_name;
+                               };
+                               stream = std::make_shared<ChangingColumnsBlockInputStream>(stream, change_column);
+                           });
+    }
+}
 
 static UInt64 getLimitUIntValue(const ASTPtr & node, const Context & context)
 {

@@ -2,6 +2,7 @@
 
 #include <Parsers/IAST.h>
 #include <Interpreters/PreparedSets.h>
+#include <Interpreters/DatabaseAndTableWithAlias.h>
 #include <Interpreters/ExpressionActions.h>
 
 
@@ -30,6 +31,9 @@ struct SubqueryForSet
     /// If set, put the result into the table.
     /// This is a temporary table for transferring to remote servers for distributed query processing.
     StoragePtr table;
+
+    /// For filling columns metadata
+    String subquery_alias;
 
     void makeSource(std::shared_ptr<InterpreterSelectWithUnionQuery> & interpreter,
                     const std::list<JoinedColumn> & columns_from_joined_table,

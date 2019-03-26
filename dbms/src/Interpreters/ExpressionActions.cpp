@@ -490,9 +490,12 @@ void ExpressionAction::execute(Block & block, bool dry_run) const
             {
                 const std::string & name = projection[i].first;
                 const std::string & alias = projection[i].second;
-                const ColumnWithTypeAndName & column = block.getByName(name);
-                if (alias != "" && !block.has(alias))
-                    block.insert({column.column, column.type, alias});
+                if (!alias.empty() && !block.has(alias))
+                {
+                    ColumnWithTypeAndName column_with_alias = block.getByName(name);
+                    column_with_alias.name = alias;
+                    block.insert(std::move(column_with_alias));
+                }
             }
             break;
         }

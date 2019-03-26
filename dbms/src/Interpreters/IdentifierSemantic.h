@@ -14,7 +14,7 @@ struct IdentifierSemanticImpl
     size_t membership = 0;      /// table position in join (starting from 1) detected by qualifier or 0 if not detected.
 };
 
-/// Static calss to manipulate IdentifierSemanticImpl via ASTIdentifier
+/// Static class to manipulate IdentifierSemanticImpl via ASTIdentifier
 struct IdentifierSemantic
 {
     /// @returns name for column identifiers

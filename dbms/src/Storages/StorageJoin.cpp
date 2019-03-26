@@ -202,7 +202,9 @@ public:
         column_with_null.resize(sample_block.columns());
         for (size_t i = 0; i < sample_block.columns(); ++i)
         {
-            auto & [_, type, name] = sample_block.getByPosition(i);
+            auto & column = sample_block.getByPosition(i);
+            auto & type = column.type;
+            auto & name = column.name;
             if (parent.sample_block_with_keys.has(name))
             {
                 key_pos = i;
