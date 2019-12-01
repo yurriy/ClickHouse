@@ -21,6 +21,13 @@
 #include <Poco/RandomStream.h>
 #include <Poco/SHA1Engine.h>
 #include "config_core.h"
+#include <Common/typeid_cast.h>
+#include <Columns/ColumnsNumber.h>
+#include <Columns/ColumnString.h>
+#include <Columns/ColumnFixedString.h>
+#include <DataTypes/DataTypeFixedString.h>
+#include <DataTypes/DataTypeString.h>
+#include <DataTypes/DataTypesNumber.h>
 #if USE_SSL
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
@@ -127,6 +134,14 @@ enum ColumnType
     MYSQL_TYPE_VAR_STRING = 0xfd,
     MYSQL_TYPE_STRING = 0xfe,
     MYSQL_TYPE_GEOMETRY = 0xff
+};
+
+
+// https://dev.mysql.com/doc/dev/mysql-server/latest/group__group__cs__column__definition__flags.html
+enum ColumnDefinitionFlags
+{
+    UNSIGNED_FLAG = 32,
+    BINARY_FLAG = 128
 };
 
 
@@ -824,19 +839,36 @@ protected:
     }
 };
 
+namespace ProtocolText
+{
+
 class ResultsetRow : public WritePacket
 {
-    std::vector<String> columns;
+    const Columns & columns;
+    int row_num;
     size_t payload_size = 0;
+    std::vector<String> serialized;
 public:
-    ResultsetRow() = default;
-
-    void appendColumn(String && value)
+    ResultsetRow(const DataTypes & data_types, const Columns & columns_, int row_num_)
+        : columns(columns_)
+        , row_num(row_num_)
     {
-        payload_size += getLengthEncodedStringSize(value);
-        columns.emplace_back(std::move(value));
+        for (size_t i = 0; i < columns.size(); i++)
+        {
+            if (columns[i]->isNullAt(row_num))
+            {
+                payload_size += 1;
+                serialized.emplace_back("\xfb");
+            }
+            else
+            {
+                WriteBufferFromOwnString ostr;
+                data_types[i]->serializeAsText(*columns[i], row_num, ostr, FormatSettings());
+                payload_size += getLengthEncodedStringSize(ostr.str());
+                serialized.push_back(std::move(ostr.str()));
+            }
+        }
     }
-
 protected:
     size_t getPayloadSize() const override
     {
@@ -845,10 +877,302 @@ protected:
 
     void writePayloadImpl(WriteBuffer & buffer) const override
     {
-        for (const String & column : columns)
-            writeLengthEncodedString(column, buffer);
+        for (size_t i = 0; i < columns.size(); i++)
+        {
+            if (columns[i]->isNullAt(row_num))
+                buffer.write(serialized[i].data(), 1);
+            else
+                writeLengthEncodedString(serialized[i], buffer);
+        }
     }
 };
+
+}
+
+namespace ProtocolBinary
+{
+
+class Serializer
+{
+public:
+    virtual ColumnDefinition getColumnDefinition(const String & column_name, const IDataType & type) const = 0;
+
+    virtual int getLength(const IDataType & type, const IColumn & column, int row_num) const = 0;
+
+    virtual void serialize(const IDataType & type, const IColumn & column, int row_num, WriteBuffer & buffer) const = 0;
+
+    Serializer() = default;
+
+    Serializer(const Serializer &) = default;
+
+    virtual ~Serializer() {}
+};
+
+
+template <typename T>
+class SerializerNumber : public Serializer
+{
+    static_assert(IsNumber<T>);
+
+public:
+    ColumnDefinition getColumnDefinition(const String & column_name, const IDataType &) const override
+    {
+        uint16_t flags = ColumnDefinitionFlags::BINARY_FLAG;
+        ColumnType column_type;
+        if constexpr (std::is_same<T, UInt8>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_TINY;
+            flags = ColumnDefinitionFlags::UNSIGNED_FLAG;
+        }
+        else if constexpr (std::is_same<T, Int8>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_TINY;
+        }
+        else if constexpr (std::is_same<T, UInt16>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_SHORT;
+            flags = ColumnDefinitionFlags::UNSIGNED_FLAG;
+        }
+        else if constexpr (std::is_same<T, Int16>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_SHORT;
+        }
+        else if constexpr (std::is_same<T, UInt32>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_LONG;
+            flags = ColumnDefinitionFlags::UNSIGNED_FLAG;
+        }
+        else if constexpr (std::is_same<T, Int32>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_LONG;
+        }
+        else if constexpr (std::is_same<T, UInt64>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_LONGLONG;
+            flags = ColumnDefinitionFlags::UNSIGNED_FLAG;
+        }
+        else if constexpr (std::is_same<T, Int64>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_LONGLONG;
+        }
+        else if constexpr (std::is_same<T, Float32>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_FLOAT;
+        }
+        else if constexpr (std::is_same<T, Float64>::value)
+        {
+            column_type = ColumnType::MYSQL_TYPE_DOUBLE;
+        }
+        return ColumnDefinition(column_name, CharacterSet::binary, 0, column_type, flags, 0);
+    }
+
+    int getLength(const IDataType &, const IColumn &, int) const override
+    {
+        return sizeof(T);
+    }
+
+    void serialize(const IDataType & type, const IColumn & column, int row_num, WriteBuffer & buffer) const override
+    {
+        typeid_cast<const DataTypeNumber<T> *>(&type)->serializeBinary(column, row_num, buffer);
+    }
+};
+
+
+class SerializerString : public Serializer
+{
+public:
+    ColumnDefinition getColumnDefinition(const String & column_name, const IDataType &) const override
+    {
+        return ColumnDefinition(column_name, CharacterSet::binary, 0, ColumnType::MYSQL_TYPE_STRING, 0, 0);
+    }
+
+    int getLength(const IDataType &, const IColumn & column, int row_num) const override
+    {
+        return typeid_cast<const ColumnString *>(&column)->getDataAt(row_num).size;
+    }
+
+    void serialize(const IDataType & type, const IColumn & column, int row_num, WriteBuffer & buffer) const override
+    {
+        typeid_cast<const DataTypeString *>(&type)->serializeBinary(column, row_num, buffer);
+    }
+};
+
+
+class SerializerFixedString : public Serializer
+{
+public:
+    ColumnDefinition getColumnDefinition(const String & column_name, const IDataType &) const override
+    {
+        return ColumnDefinition(column_name, CharacterSet::binary, 0, ColumnType::MYSQL_TYPE_STRING, 0, 0);
+    }
+
+    int getLength(const IDataType & type, const IColumn &, int) const override
+    {
+        return typeid_cast<const DataTypeFixedString *>(&type)->getN();
+    }
+
+    void serialize(const IDataType & type, const IColumn & column, int row_num, WriteBuffer & buffer) const override
+    {
+        typeid_cast<const DataTypeFixedString *>(&type)->serializeBinary(column, row_num, buffer);
+    }
+};
+
+
+class SerializerDate : public Serializer
+{
+public:
+    ColumnDefinition getColumnDefinition(const String & column_name, const IDataType &) const override
+    {
+        return ColumnDefinition(column_name, CharacterSet::binary, 0, ColumnType::MYSQL_TYPE_DATE, 0, 0);
+    }
+
+    int getLength(const IDataType &, const IColumn & column, int row_num) const override
+    {
+        auto day_num = DayNum(typeid_cast<const ColumnUInt16 *>(&column)->getData()[row_num]);
+        // The value of 0 should be printed as 0000-00-00, which is an empty string in MySQL protocol.
+        return day_num == 0 ? 0 : 5;
+    }
+
+    void serialize(const IDataType &, const IColumn & column, int row_num, WriteBuffer & buffer) const override
+    {
+        auto day_num = DayNum(typeid_cast<const ColumnUInt16 *>(&column)->getData()[row_num]);
+        if (day_num == 0)
+            return;
+        buffer.write(4);
+        LocalDate datetime(day_num);
+        auto year = datetime.year();
+        buffer.write(reinterpret_cast<const char *>(&year), 2);
+        buffer.write(datetime.month());
+        buffer.write(datetime.day());
+    }
+};
+
+
+class SerializerDateTime : public Serializer
+{
+public:
+    ColumnDefinition getColumnDefinition(const String & column_name, const IDataType &) const override
+    {
+        return ColumnDefinition(column_name, CharacterSet::binary, 0, ColumnType::MYSQL_TYPE_DATETIME, ColumnDefinitionFlags::BINARY_FLAG, 0);
+    }
+
+    int getLength(const IDataType &, const IColumn & column, int row_num) const override
+    {
+        time_t datetime = typeid_cast<const ColumnUInt32 *>(&column)->getData()[row_num];
+        // The value of 0 should be printed as 0000-00-00, which is an empty string in MySQL protocol.
+        if (datetime == 0)
+            return 0;
+
+        unsigned hour = DateLUT::instance().toHour(datetime);
+        unsigned minute = DateLUT::instance().toMinute(datetime);
+        unsigned second = DateLUT::instance().toSecond(datetime);
+        if (!hour && !minute && !second)
+            return 4;
+
+        return 7;
+    }
+
+    void serialize(const IDataType &, const IColumn & column, int row_num, WriteBuffer & buffer) const override
+    {
+        time_t datetime = typeid_cast<const ColumnUInt32 *>(&column)->getData()[row_num];
+        if (datetime == 0)
+            return;
+
+        auto year = DateLUT::instance().toYear(datetime);
+        buffer.write(reinterpret_cast<const char *>(&year), 2);
+        buffer.write(DateLUT::instance().toMonth(datetime));
+        buffer.write(DateLUT::instance().toDayOfMonth(datetime));
+
+        unsigned hour = DateLUT::instance().toHour(datetime);
+        unsigned minute = DateLUT::instance().toMinute(datetime);
+        unsigned second = DateLUT::instance().toSecond(datetime);
+        if (!hour && !minute && !second)
+            return;
+
+        buffer.write(hour);
+        buffer.write(minute);
+        buffer.write(second);
+    }
+};
+
+
+class SerializerAny : public Serializer
+{
+    FormatSettings format_settings;
+public:
+    ColumnDefinition getColumnDefinition(const String & column_name, const IDataType &) const override
+    {
+        return ColumnDefinition(column_name, CharacterSet::binary, 0, ColumnType::MYSQL_TYPE_STRING, 0, 0);
+    }
+
+    int getLength(const IDataType & type, const IColumn & column, int row_num) const override
+    {
+        WriteBufferFromOwnString ostr;
+        type.serializeAsText(column, row_num, ostr, format_settings);
+        return ostr.str().size();
+    }
+
+    void serialize(const IDataType & type, const IColumn & column, int row_num, WriteBuffer & buffer) const override
+    {
+        WriteBufferFromOwnString ostr;
+        type.serializeAsText(column, row_num, ostr, format_settings);
+        writeString(ostr.str(), buffer);
+    }
+};
+
+
+using SerializerUInt8 = SerializerNumber<UInt8>;
+using SerializerUInt16 = SerializerNumber<UInt16>;
+using SerializerUInt32 = SerializerNumber<UInt32>;
+using SerializerUInt64 = SerializerNumber<UInt64>;
+
+using SerializerInt8 = SerializerNumber<UInt8>;
+using SerializerInt16 = SerializerNumber<UInt16>;
+using SerializerInt32 = SerializerNumber<UInt32>;
+using SerializerInt64 = SerializerNumber<UInt64>;
+
+using SerializerFloat32 = SerializerNumber<Float32>;
+using SerializerFloat64 = SerializerNumber<Float64>;
+
+
+const Serializer & getSerializer(const TypeIndex type);
+
+class ResultsetRow : public WritePacket
+{
+    const DataTypes & data_types;
+    const Columns & columns;
+    int row_num;
+    const std::vector<const Serializer *> & column_serializers;
+public:
+    ResultsetRow(const DataTypes & data_types_, const Columns & columns_, int row_num_, const std::vector<const Serializer *> & column_serializers_)
+        : data_types(data_types_)
+        , columns(columns_)
+        , row_num(row_num_)
+        , column_serializers(column_serializers_)
+    {}
+protected:
+    size_t getPayloadSize() const override
+    {
+        size_t payload_size = 0;
+        for (size_t i = 0; i < columns.size(); i++)
+        {
+            size_t column_size = column_serializers[i]->getLength(*data_types[i], *columns[i], row_num);
+            payload_size += column_size + getLengthEncodedNumberSize(column_size);
+        }
+        return payload_size;
+    }
+
+    void writePayloadImpl(WriteBuffer & buffer) const override
+    {
+        for (size_t i = 0; i < columns.size(); i++)
+        {
+            writeLengthEncodedNumber(column_serializers[i]->getLength(*data_types[i], *columns[i], row_num), buffer);
+            column_serializers[i]->serialize(*data_types[i], *columns[i], row_num, buffer);
+        }
+    }
+};
+
+}
 
 namespace Authentication
 {

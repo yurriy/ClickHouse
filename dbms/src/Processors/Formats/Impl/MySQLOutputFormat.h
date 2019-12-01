@@ -37,6 +37,8 @@ private:
     const Context & context;
     MySQLProtocol::PacketSender packet_sender;
     FormatSettings format_settings;
+    DataTypes data_types;
+    std::vector<const MySQLProtocol::ProtocolBinary::Serializer *> column_serializers;
 };
 
 }

@@ -100,4 +100,59 @@ size_t getLengthEncodedStringSize(const String & s)
     return getLengthEncodedNumberSize(s.size()) + s.size();
 }
 
+namespace ProtocolBinary
+{
+
+const Serializer & getSerializer(const TypeIndex type) {
+    switch (type) {
+        case TypeIndex::UInt8:
+            static SerializerUInt8 serializer1;
+            return serializer1;
+        case TypeIndex::UInt16:
+            static SerializerUInt16 serializer2;
+            return serializer2;
+        case TypeIndex::UInt32:
+            static SerializerUInt32 serializer3;
+            return serializer3;
+        case TypeIndex::UInt64:
+            static SerializerUInt64 serializer4;
+            return serializer4;
+        case TypeIndex::Int8:
+            static SerializerInt8 serializer5;
+            return serializer5;
+        case TypeIndex::Int16:
+            static SerializerInt16 serializer6;
+            return serializer6;
+        case TypeIndex::Int32:
+            static SerializerInt32 serializer7;
+            return serializer7;
+        case TypeIndex::Int64:
+            static SerializerInt64 serializer8;
+            return serializer8;
+        case TypeIndex::Float32:
+            static SerializerFloat32 serializer9;
+            return serializer9;
+        case TypeIndex::Float64:
+            static SerializerFloat64 serializer10;
+            return serializer10;
+        case TypeIndex::Date:
+            static SerializerDate serializer11;
+            return serializer11;
+        case TypeIndex::DateTime:
+            static SerializerDateTime serializer12;
+            return serializer12;
+        case TypeIndex::String:
+            static SerializerString serializer13;
+            return serializer13;
+        case TypeIndex::FixedString:
+            static SerializerFixedString serializer14;
+            return serializer14;
+        default:
+            static SerializerAny serializer15;
+            return serializer15;
+    }
+}
+
+}
+
 }

@@ -110,6 +110,17 @@ def test_mysql_client(mysql_client, server_address):
 
 
 def test_python_client(server_address):
+    client = pymysql.connections.Connection(host=server_address, user='user_with_double_sha1', password='abacaba', database='default', port=server_port)
+
+    with pytest.raises(pymysql.InternalError) as exc_info:
+        client.query('select name from tables')
+
+    assert exc_info.value.args == (60, "Table default.tables doesn't exist.")
+
+    cursor = client.cursor(pymysql.cursors.DictCursor)
+    cursor.execute("select 1 as a, 'тест' as b")
+    assert cursor.fetchall() == [{'a': 1, 'b': 'тест'}]
+
     with pytest.raises(pymysql.InternalError) as exc_info:
         pymysql.connections.Connection(host=server_address, user='default', password='abacab', database='default', port=server_port)
 
@@ -124,7 +135,7 @@ def test_python_client(server_address):
 
     cursor = client.cursor(pymysql.cursors.DictCursor)
     cursor.execute("select 1 as a, 'тест' as b")
-    assert cursor.fetchall() == [{'a': '1', 'b': 'тест'}]
+    assert cursor.fetchall() == [{'a': 1, 'b': 'тест'}]
 
     client.select_db('system')
 
@@ -140,18 +151,18 @@ def test_python_client(server_address):
     cursor.execute("INSERT INTO table1 VALUES (1), (3)")
     cursor.execute("INSERT INTO table1 VALUES (1), (4)")
     cursor.execute("SELECT * FROM table1 ORDER BY a")
-    assert cursor.fetchall() == [{'a': '1'}, {'a': '1'}, {'a': '3'}, {'a': '4'}]
+    assert cursor.fetchall() == [{'a': 1}, {'a': 1}, {'a': 3}, {'a': 4}]
 
 
 def test_golang_client(server_address, golang_container):
     # type: (str, Container) -> None
-    code, (stdout, stderr) = golang_container.exec_run('./main --host {host} --port {port} --user default --password 123 --database '
+    code, (stdout, stderr) = golang_container.exec_run('./main --host {host} --port {port} --user user_with_double_sha1 --password abacaba --database '
                                                        'abc'.format(host=server_address, port=server_port), demux=True)
 
     assert code == 1
     assert stderr == "Error 81: Database abc doesn't exist\n"
 
-    code, (stdout, stderr) = golang_container.exec_run('./main --host {host} --port {port} --user default --password 123 --database '
+    code, (stdout, stderr) = golang_container.exec_run('./main --host {host} --port {port} --user user_with_double_sha1 --password abacaba --database '
                                                        'default'.format(host=server_address, port=server_port), demux=True)
 
     assert code == 0
@@ -163,23 +174,23 @@ def test_golang_client(server_address, golang_container):
 
 def test_php_client(server_address, php_container):
     # type: (str, Container) -> None
-    code, (stdout, stderr) = php_container.exec_run('php -f test.php {host} {port} default 123'.format(host=server_address, port=server_port), demux=True)
+    code, (stdout, stderr) = php_container.exec_run('php -f test.php {host} {port} user_with_double_sha1 abacaba'.format(host=server_address, port=server_port), demux=True)
     assert code == 0
     assert stdout == 'tables\n'
 
-    code, (stdout, stderr) = php_container.exec_run('php -f test_ssl.php {host} {port} default 123'.format(host=server_address, port=server_port), demux=True)
+    code, (stdout, stderr) = php_container.exec_run('php -f test_ssl.php {host} {port} user_with_double_sha1 abacaba'.format(host=server_address, port=server_port), demux=True)
     assert code == 0
     assert stdout == 'tables\n'
 
 
 def test_mysqljs_client(server_address, nodejs_container):
-    code, (_, stderr) = nodejs_container.exec_run('node test.js {host} {port} default 123'.format(host=server_address, port=server_port), demux=True)
-    assert code == 1
-    assert 'MySQL is requesting the sha256_password authentication method, which is not supported.' in stderr
-
-    code, (_, stderr) = nodejs_container.exec_run('node test.js {host} {port} user_with_empty_password ""'.format(host=server_address, port=server_port), demux=True)
-    assert code == 1
-    assert 'MySQL is requesting the sha256_password authentication method, which is not supported.' in stderr
+    # code, (_, stderr) = nodejs_container.exec_run('node test.js {host} {port} default 123'.format(host=server_address, port=server_port), demux=True)
+    # assert code == 1
+    # assert 'MySQL is requesting the sha256_password authentication method, which is not supported.' in stderr
+    #
+    # code, (_, stderr) = nodejs_container.exec_run('node test.js {host} {port} user_with_empty_password ""'.format(host=server_address, port=server_port), demux=True)
+    # assert code == 1
+    # assert 'MySQL is requesting the sha256_password authentication method, which is not supported.' in stderr
 
     code, (_, _) = nodejs_container.exec_run('node test.js {host} {port} user_with_double_sha1 abacaba'.format(host=server_address, port=server_port), demux=True)
     assert code == 0
